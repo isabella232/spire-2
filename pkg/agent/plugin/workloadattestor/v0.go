@@ -13,9 +13,9 @@ type V0 struct {
 	workloadattestorv0.WorkloadAttestorPluginClient
 }
 
-func (v0 *V0) Attest(ctx context.Context, pid int) ([]*common.Selector, error) {
+func (v0 *V0) Attest(ctx context.Context, credentials *common.WorkloadCredentials) ([]*common.Selector, error) {
 	resp, err := v0.WorkloadAttestorPluginClient.Attest(ctx, &workloadattestorv0.AttestRequest{
-		Pid: int32(pid),
+		Credentials: credentials,
 	})
 	if err != nil {
 		return nil, v0.WrapErr(err)

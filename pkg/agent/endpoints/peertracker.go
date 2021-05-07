@@ -14,13 +14,21 @@ type peerTrackerAttestor struct {
 	Attestor attestor.Attestor
 }
 
-func (a peerTrackerAttestor) Attest(ctx context.Context) ([]*common.Selector, error) {
+func (a peerTrackerAttestor) Attest(ctx context.Context, credentials *common.WorkloadCredentials) ([]*common.Selector, error) {
 	watcher, ok := peertracker.WatcherFromContext(ctx)
 	if !ok {
 		return nil, status.Error(codes.Internal, "peer tracker watcher missing from context")
 	}
 
-	selectors := a.Attestor.Attest(ctx, int(watcher.PID()))
+	if credentials == nil {
+		credentials = &common.WorkloadCredentials{}
+	}
+
+	if credentials.Pid == 0 && credentials.PodUuid == "" {
+		credentials.Pid = int32(watcher.PID())
+	}
+
+	selectors := a.Attestor.Attest(ctx, credentials)
 
 	// Ensure that the original caller is still alive so that we know we didn't
 	// attest some other process that happened to be assigned the original PID

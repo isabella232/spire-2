@@ -25,7 +25,7 @@ import (
 )
 
 type Attestor interface {
-	Attest(ctx context.Context) ([]*common.Selector, error)
+	Attest(ctx context.Context, credentials *common.WorkloadCredentials) ([]*common.Selector, error)
 }
 
 type Manager interface {
@@ -56,7 +56,7 @@ func New(config Config) *Handler {
 func (h *Handler) StreamSecrets(stream discovery_v2.SecretDiscoveryService_StreamSecretsServer) error {
 	log := rpccontext.Logger(stream.Context())
 
-	selectors, err := h.c.Attestor.Attest(stream.Context())
+	selectors, err := h.c.Attestor.Attest(stream.Context(), nil)
 	if err != nil {
 		log.WithError(err).Error("Failed to attest the workload")
 		return err
@@ -202,7 +202,7 @@ func (h *Handler) FetchSecrets(ctx context.Context, req *api_v2.DiscoveryRequest
 		telemetry.ResourceNames: req.ResourceNames,
 	})
 
-	selectors, err := h.c.Attestor.Attest(ctx)
+	selectors, err := h.c.Attestor.Attest(ctx, nil)
 	if err != nil {
 		log.WithError(err).Error("Failed to attest the workload")
 		return nil, err

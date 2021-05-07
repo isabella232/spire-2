@@ -10,5 +10,5 @@ import (
 type WorkloadAttestor interface {
 	catalog.PluginInfo
 
-	Attest(ctx context.Context, pid int) ([]*common.Selector, error)
+	Attest(ctx context.Context, credentials *common.WorkloadCredentials) ([]*common.Selector, error)
 }

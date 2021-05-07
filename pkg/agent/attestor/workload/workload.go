@@ -3,7 +3,6 @@ package attestor
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spiffe/spire/pkg/agent/catalog"
@@ -18,7 +17,7 @@ type attestor struct {
 }
 
 type Attestor interface {
-	Attest(ctx context.Context, pid int) []*common.Selector
+	Attest(ctx context.Context, credentials *common.WorkloadCredentials) []*common.Selector
 }
 
 func New(config *Config) Attestor {
@@ -37,11 +36,11 @@ type Config struct {
 
 // Attest invokes all workload attestor plugins against the provided PID. If an error
 // is encountered, it is logged and selectors from the failing plugin are discarded.
-func (wla *attestor) Attest(ctx context.Context, pid int) []*common.Selector {
+func (wla *attestor) Attest(ctx context.Context, credentials *common.WorkloadCredentials) []*common.Selector {
 	counter := telemetry_workload.StartAttestationCall(wla.c.Metrics)
 	defer counter.Done(nil)
 
-	log := wla.c.Log.WithField(telemetry.PID, pid)
+	log := wla.c.Log.WithField(telemetry.PID, 0)
 
 	plugins := wla.c.Catalog.GetWorkloadAttestors()
 	sChan := make(chan []*common.Selector)
@@ -49,7 +48,7 @@ func (wla *attestor) Attest(ctx context.Context, pid int) []*common.Selector {
 
 	for _, p := range plugins {
 		go func(p workloadattestor.WorkloadAttestor) {
-			if selectors, err := wla.invokeAttestor(ctx, p, pid); err == nil {
+			if selectors, err := wla.invokeAttestor(ctx, p, credentials); err == nil {
 				sChan <- selectors
 			} else {
 				errChan <- err
@@ -73,18 +72,18 @@ func (wla *attestor) Attest(ctx context.Context, pid int) []*common.Selector {
 	// can happen with some frequency, it has a tendency to fill up logs with
 	// hard-to-filter details if we're not careful (e.g. issue #1537). Only log
 	// if it is not the agent itself.
-	if pid != os.Getpid() {
-		log.WithField(telemetry.Selectors, selectors).Debug("PID attested to have selectors")
-	}
+	//if pid != os.Getpid() {
+	//	log.WithField(telemetry.Selectors, selectors).Debug("PID attested to have selectors")
+	//}
 	return selectors
 }
 
 // invokeAttestor invokes attestation against the supplied plugin. Should be called from a goroutine.
-func (wla *attestor) invokeAttestor(ctx context.Context, a workloadattestor.WorkloadAttestor, pid int) (_ []*common.Selector, err error) {
+func (wla *attestor) invokeAttestor(ctx context.Context, a workloadattestor.WorkloadAttestor, credentials *common.WorkloadCredentials) (_ []*common.Selector, err error) {
 	counter := telemetry_workload.StartAttestorCall(wla.c.Metrics, a.Name())
 	defer counter.Done(&err)
 
-	selectors, err := a.Attest(ctx, pid)
+	selectors, err := a.Attest(ctx, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("workload attestor %q failed: %v", a.Name(), err)
 	}

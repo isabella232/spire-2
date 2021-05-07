@@ -36,7 +36,7 @@ type Manager interface {
 }
 
 type Attestor interface {
-	Attest(ctx context.Context) ([]*common.Selector, error)
+	Attest(ctx context.Context, credentials *common.WorkloadCredentials) ([]*common.Selector, error)
 }
 
 // Handler implements the Workload API interface
@@ -65,7 +65,7 @@ func (h *Handler) FetchJWTSVID(ctx context.Context, req *workload.JWTSVIDRequest
 		return nil, status.Error(codes.InvalidArgument, "audience must be specified")
 	}
 
-	selectors, err := h.c.Attestor.Attest(ctx)
+	selectors, err := h.c.Attestor.Attest(ctx, nil)
 	if err != nil {
 		log.WithError(err).Error("Workload attestation failed")
 		return nil, err
@@ -121,7 +121,7 @@ func (h *Handler) FetchJWTBundles(req *workload.JWTBundlesRequest, stream worklo
 	ctx := stream.Context()
 	log := rpccontext.Logger(ctx)
 
-	selectors, err := h.c.Attestor.Attest(ctx)
+	selectors, err := h.c.Attestor.Attest(ctx, nil)
 	if err != nil {
 		log.WithError(err).Error("Workload attestation failed")
 		return err
@@ -156,7 +156,7 @@ func (h *Handler) ValidateJWTSVID(ctx context.Context, req *workload.ValidateJWT
 
 	log = log.WithField(telemetry.Audience, req.Audience)
 
-	selectors, err := h.c.Attestor.Attest(ctx)
+	selectors, err := h.c.Attestor.Attest(ctx, nil)
 	if err != nil {
 		log.WithError(err).Error("Workload attestation failed")
 		return nil, err
@@ -184,7 +184,7 @@ func (h *Handler) ValidateJWTSVID(ctx context.Context, req *workload.ValidateJWT
 }
 
 // FetchX509SVID processes request for an x509 SVID
-func (h *Handler) FetchX509SVID(_ *workload.X509SVIDRequest, stream workload.SpiffeWorkloadAPI_FetchX509SVIDServer) error {
+func (h *Handler) FetchX509SVID(req *workload.X509SVIDRequest, stream workload.SpiffeWorkloadAPI_FetchX509SVIDServer) error {
 	ctx := stream.Context()
 	log := rpccontext.Logger(ctx)
 
@@ -194,7 +194,12 @@ func (h *Handler) FetchX509SVID(_ *workload.X509SVIDRequest, stream workload.Spi
 	// if it is not the agent itself.
 	quietLogging := rpccontext.CallerPID(ctx) == os.Getpid()
 
-	selectors, err := h.c.Attestor.Attest(ctx)
+	credentials := &common.WorkloadCredentials{
+		Pid:     req.GetPid(),
+		PodUuid: req.GetPodUuid(),
+	}
+
+	selectors, err := h.c.Attestor.Attest(ctx, credentials)
 	if err != nil {
 		log.WithError(err).Error("Workload attestation failed")
 		return err
@@ -220,7 +225,7 @@ func (h *Handler) FetchX509Bundles(_ *workload.X509BundlesRequest, stream worklo
 	ctx := stream.Context()
 	log := rpccontext.Logger(ctx)
 
-	selectors, err := h.c.Attestor.Attest(ctx)
+	selectors, err := h.c.Attestor.Attest(ctx, nil)
 	if err != nil {
 		log.WithError(err).Error("Workload attestation failed")
 		return err

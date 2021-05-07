@@ -84,3 +84,5 @@ require (
 	k8s.io/utils v0.0.0-20201110183641-67b214c5f920
 	sigs.k8s.io/controller-runtime v0.6.0
 )
+
+replace github.com/spiffe/go-spiffe/v2 => github.com/kinvolk/go-spiffe/v2 v2.0.0-beta.5.0.20210507201457-1f1f0e32b033

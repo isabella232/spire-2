@@ -158,13 +158,57 @@ func (p *Plugin) SetLogger(log hclog.Logger) {
 	p.log = log
 }
 
-func (p *Plugin) Attest(ctx context.Context, req *workloadattestorv0.AttestRequest) (*workloadattestorv0.AttestResponse, error) {
+func (p *Plugin) attestByPodUuid(ctx context.Context, uuid string) (*workloadattestorv0.AttestResponse, error) {
 	config, err := p.getConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	containerID, err := p.getContainerIDFromCGroups(req.Pid)
+	log := p.log
+
+	// Poll pod information and search for the pod with the container. If
+	// the pod is not found then delay for a little bit and try again.
+	for attempt := 1; ; attempt++ {
+		log = log.With(telemetry.Attempt, attempt)
+
+		list, err := config.Client.GetPodList()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, item := range list.Items {
+			item := item
+			if string(item.UID) == uuid {
+				return &workloadattestorv0.AttestResponse{
+					Selectors: getSelectorsFromPodInfo(&item, nil),
+				}, nil
+			}
+		}
+
+		// if the container was not located after the maximum number of attempts then the search is over.
+		if attempt >= config.MaxPollAttempts {
+			log.Warn("Container id not found; giving up")
+			return nil, k8sErr.New("no selectors found")
+		}
+
+		// wait a bit for containers to initialize before trying again.
+		log.Warn("Container id not found", telemetry.RetryInterval, config.PollRetryInterval)
+
+		select {
+		case <-p.clock.After(config.PollRetryInterval):
+		case <-ctx.Done():
+			return nil, k8sErr.New("no selectors found: %v", ctx.Err())
+		}
+	}
+}
+
+func (p *Plugin) attestByPid(ctx context.Context, pid int32) (*workloadattestorv0.AttestResponse, error) {
+	config, err := p.getConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	containerID, err := p.getContainerIDFromCGroups(pid)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +257,16 @@ func (p *Plugin) Attest(ctx context.Context, req *workloadattestorv0.AttestReque
 			return nil, k8sErr.New("no selectors found: %v", ctx.Err())
 		}
 	}
+}
+
+func (p *Plugin) Attest(ctx context.Context, req *workloadattestorv0.AttestRequest) (*workloadattestorv0.AttestResponse, error) {
+	if req.Credentials.Pid != 0 {
+		return p.attestByPid(ctx, req.Credentials.Pid)
+	} else if req.Credentials.PodUuid != "" {
+		return p.attestByPodUuid(ctx, req.Credentials.PodUuid)
+	}
+
+	return nil, k8sErr.New("no credentials sent")
 }
 
 func (p *Plugin) Configure(ctx context.Context, req *spi.ConfigureRequest) (resp *spi.ConfigureResponse, err error) {
@@ -646,10 +700,10 @@ func getPodImageIdentifiers(containerStatusArray []corev1.ContainerStatus) map[s
 	return podImages
 }
 
-func getSelectorsFromPodInfo(pod *corev1.Pod, status *corev1.ContainerStatus) []*common.Selector {
+func getSelectorsFromPodInfo(pod *corev1.Pod, _ *corev1.ContainerStatus) []*common.Selector {
 	podImageIdentifiers := getPodImageIdentifiers(pod.Status.ContainerStatuses)
 	podInitImageIdentifiers := getPodImageIdentifiers(pod.Status.InitContainerStatuses)
-	containerImageIdentifiers := getPodImageIdentifiers([]corev1.ContainerStatus{*status})
+	//containerImageIdentifiers := getPodImageIdentifiers([]corev1.ContainerStatus{*status})
 
 	selectors := []*common.Selector{
 		makeSelector("sa:%s", pod.Spec.ServiceAccountName),
@@ -657,14 +711,14 @@ func getSelectorsFromPodInfo(pod *corev1.Pod, status *corev1.ContainerStatus) []
 		makeSelector("node-name:%s", pod.Spec.NodeName),
 		makeSelector("pod-uid:%s", pod.UID),
 		makeSelector("pod-name:%s", pod.Name),
-		makeSelector("container-name:%s", status.Name),
+		//makeSelector("container-name:%s", status.Name),
 		makeSelector("pod-image-count:%s", strconv.Itoa(len(pod.Status.ContainerStatuses))),
 		makeSelector("pod-init-image-count:%s", strconv.Itoa(len(pod.Status.InitContainerStatuses))),
 	}
 
-	for containerImage := range containerImageIdentifiers {
-		selectors = append(selectors, makeSelector("container-image:%s", containerImage))
-	}
+	//for containerImage := range containerImageIdentifiers {
+	//	selectors = append(selectors, makeSelector("container-image:%s", containerImage))
+	//}
 	for podImage := range podImageIdentifiers {
 		selectors = append(selectors, makeSelector("pod-image:%s", podImage))
 	}

@@ -253,7 +253,7 @@ define binary_rule
 .PHONY: $1
 $1: | go-check bin/
 	@echo Building $1...
-	$(E)$(go_path) go build $$(go_flags) -ldflags $$(go_ldflags) -o $1 $2
+	$(E)$(go_path) CGO_ENABLED=0 go build $$(go_flags) -ldflags $$(go_ldflags) -o $1 $2
 endef
 
 # main SPIRE binaries

@@ -133,7 +133,15 @@ func (p *Plugin) Attest(ctx context.Context, req *workloadattestorv0.AttestReque
 		return nil, err
 	}
 
-	proc, err := p.hooks.newProcess(req.Pid)
+	// TODO: what should happen in ths case?
+	// It could mean the client is trying to perform the atttestation by pod
+	// uuid that is not supported by the unix attestator.
+	// Perhaps just avoid returning any selectors as it's actually no an error?
+	if req.Credentials.Pid == 0 {
+		return &workloadattestorv0.AttestResponse{}, nil
+	}
+
+	proc, err := p.hooks.newProcess(req.Credentials.Pid)
 	if err != nil {
 		return nil, unixErr.New("getting process: %v", err)
 	}

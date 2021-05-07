@@ -77,7 +77,7 @@ func (p *Plugin) Attest(ctx context.Context, req *workloadattestorv0.AttestReque
 	p.mtx.RLock()
 	defer p.mtx.RUnlock()
 
-	cgroupList, err := cgroups.GetCgroups(req.Pid, p.fs)
+	cgroupList, err := cgroups.GetCgroups(req.Credentials.Pid, p.fs)
 	if err != nil {
 		return nil, err
 	}
