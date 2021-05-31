@@ -8,6 +8,7 @@ import (
 
 	"github.com/andres-erbsen/clock"
 	"github.com/spiffe/spire/pkg/agent/api/debug/v1"
+	"github.com/spiffe/spire/pkg/agent/api/privileged/v1"
 	"github.com/spiffe/spire/pkg/common/peertracker"
 	"github.com/spiffe/spire/pkg/common/telemetry"
 
@@ -29,6 +30,7 @@ func (e *Endpoints) ListenAndServe(ctx context.Context) error {
 	)
 
 	e.registerDebugAPI(server)
+	e.registerPrivilegedAPI(server)
 
 	l, err := e.createUDSListener()
 	if err != nil {
@@ -61,6 +63,16 @@ func (e *Endpoints) registerDebugAPI(server *grpc.Server) {
 	})
 
 	debug.RegisterService(server, service)
+}
+
+func (e *Endpoints) registerPrivilegedAPI(server *grpc.Server) {
+	service := privileged.New(privileged.Config{
+		Manager:         e.c.Manager,
+		Attestor:        e.c.Attestor,
+		AuthorizedUsers: e.c.AuthorizedUsersPrivilegedApi,
+	})
+
+	privileged.RegisterService(server, service)
 }
 
 func (e *Endpoints) createUDSListener() (net.Listener, error) {

@@ -68,6 +68,8 @@ type Config struct {
 	Telemetry telemetry.FileConfig
 
 	AllowUnauthenticatedVerifiers bool
+
+	AuthorizedUsersPrivilegedApi []string
 }
 
 func New(c *Config) *Agent {
