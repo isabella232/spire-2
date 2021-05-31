@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -173,14 +174,33 @@ func (h *Handler) ValidateJWTSVID(ctx context.Context, req *workload.ValidateJWT
 }
 
 // FetchX509SVID processes request for an x509 SVID
-func (h *Handler) FetchX509SVID(_ *workload.X509SVIDRequest, stream workload.SpiffeWorkloadAPI_FetchX509SVIDServer) error {
+func (h *Handler) FetchX509SVID(req *workload.X509SVIDRequest, stream workload.SpiffeWorkloadAPI_FetchX509SVIDServer) error {
 	ctx := stream.Context()
 	log := rpccontext.Logger(ctx)
 
-	selectors, err := h.c.Attestor.Attest(ctx)
-	if err != nil {
-		log.WithError(err).Error("Workload attestation failed")
-		return err
+	var selectors []*common.Selector
+	var err error
+
+	if len(req.Selectors) == 0 {
+		selectors, err = h.c.Attestor.Attest(ctx)
+		if err != nil {
+			log.WithError(err).Error("Workload attestation failed")
+			return err
+		}
+	} else {
+		for _, selector := range req.Selectors {
+			pieces := strings.SplitN(selector, ":", 2)
+			if len(pieces) != 2 {
+				return fmt.Errorf("bad request")
+			}
+
+			sel := common.Selector{
+				Type:  pieces[0],
+				Value: pieces[1],
+			}
+
+			selectors = append(selectors, &sel)
+		}
 	}
 
 	subscriber := h.c.Manager.SubscribeToCacheChanges(selectors)
