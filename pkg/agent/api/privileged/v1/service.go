@@ -7,6 +7,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	privilegedv1 "github.com/spiffe/spire-api-sdk/proto/spire/api/agent/privileged/v1"
+	types "github.com/spiffe/spire-api-sdk/proto/spire/api/types"
 	attestor "github.com/spiffe/spire/pkg/agent/attestor/workload"
 	"github.com/spiffe/spire/pkg/agent/endpoints"
 	"github.com/spiffe/spire/pkg/agent/manager"
@@ -83,7 +84,7 @@ func (s *Service) isCallerAuthorized(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-func (s *Service) FetchX509SVIDBySelectors(req *privilegedv1.FetchX509SVIDBySelectorsRequest, stream privilegedv1.Privileged_FetchX509SVIDBySelectorsServer) error {
+func (s *Service) FetchX509SVIDsBySelectors(req *privilegedv1.FetchX509SVIDsBySelectorsRequest, stream privilegedv1.Privileged_FetchX509SVIDsBySelectorsServer) error {
 	ctx := stream.Context()
 
 	authorized, err := s.isCallerAuthorized(ctx)
@@ -115,7 +116,7 @@ func (s *Service) FetchX509SVIDBySelectors(req *privilegedv1.FetchX509SVIDBySele
 	}
 }
 
-func sendX509SVIDResponse(update *cache.WorkloadUpdate, stream privilegedv1.Privileged_FetchX509SVIDBySelectorsServer) (err error) {
+func sendX509SVIDResponse(update *cache.WorkloadUpdate, stream privilegedv1.Privileged_FetchX509SVIDsBySelectorsServer) (err error) {
 	resp, err := composeX509SVIDBySelectors(update)
 	if err != nil {
 		//log.WithError(err).Error("Could not serialize X.509 SVID response")
@@ -130,11 +131,9 @@ func sendX509SVIDResponse(update *cache.WorkloadUpdate, stream privilegedv1.Priv
 	return nil
 }
 
-func composeX509SVIDBySelectors(update *cache.WorkloadUpdate) (*privilegedv1.FetchX509SVIDBySelectorsResponse, error) {
-	resp := new(privilegedv1.FetchX509SVIDBySelectorsResponse)
-	resp.Svids = []*privilegedv1.X509SVID{}
-
-	bundle := marshalBundle(update.Bundle.RootCAs())
+func composeX509SVIDBySelectors(update *cache.WorkloadUpdate) (*privilegedv1.FetchX509SVIDsBySelectorsResponse, error) {
+	resp := new(privilegedv1.FetchX509SVIDsBySelectorsResponse)
+	resp.Svids = []*privilegedv1.X509SVIDWithKey{}
 
 	for _, identity := range update.Identities {
 		// TODO:  it doesn't work and always prints "false"
@@ -151,18 +150,22 @@ func composeX509SVIDBySelectors(update *cache.WorkloadUpdate) (*privilegedv1.Fet
 			return nil, fmt.Errorf("marshal key for %v: %w", id, err)
 		}
 
-		svid := &privilegedv1.X509SVID{
-			Id:          id,
-			X509Svid:    x509util.DERFromCertificates(identity.SVID),
+		svid := &privilegedv1.X509SVIDWithKey{
+			X509Svid: &types.X509SVID{
+				Id: id,
+				//CertChain: x509util.DERFromCertificates(identity.SVID),
+				CertChain: x509util.RawCertsFromCertificates(identity.SVID),
+			},
 			X509SvidKey: keyData,
-			Bundle:      bundle,
 		}
 
 		resp.Svids = append(resp.Svids, svid)
 	}
 
-	// Send federated bundles only if there is any svid
+	// Send bundles only if there is any svid
 	if len(resp.Svids) != 0 {
+		resp.Bundle = marshalBundle(update.Bundle.RootCAs())
+
 		resp.FederatedBundles = make(map[string][]byte)
 
 		for td, federatedBundle := range update.FederatedBundles {
