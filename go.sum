@@ -458,6 +458,8 @@ github.com/jstemmer/go-junit-report v0.9.1/go.mod h1:Brl9GWCQeLvo8nXZwPNNblvFj/X
 github.com/julienschmidt/httprouter v1.2.0/go.mod h1:SYymIcj16QtmaHHD7aYtjjsJG7VTCxuUUipMqKk8s4w=
 github.com/kinvolk/spire-api-sdk v1.0.0-pre.0.20210531191218-f6af4bcf4c8e h1:TxTUdiVF31jdA2SrUdJOlH3lyIrWcaY1DlAjr6ui7BE=
 github.com/kinvolk/spire-api-sdk v1.0.0-pre.0.20210531191218-f6af4bcf4c8e/go.mod h1:2wSTZ6oEnKqI3uBST05Mmm751+yoHEvgxomYKYOQ6Ko=
+github.com/kinvolk/spire-api-sdk v1.0.0-pre.0.20210610130402-7108593e3cec h1:hBk3Ug1Vo+IZ0Yjkwtze8eyX0NS9l9SbtA4+Uhf67q4=
+github.com/kinvolk/spire-api-sdk v1.0.0-pre.0.20210610130402-7108593e3cec/go.mod h1:2wSTZ6oEnKqI3uBST05Mmm751+yoHEvgxomYKYOQ6Ko=
 github.com/kisielk/errcheck v1.1.0/go.mod h1:EZBBE59ingxPouuu3KfxchcWSUPOHkagtvWXihfKN4Q=
 github.com/kisielk/errcheck v1.2.0/go.mod h1:/BMXB+zMLi60iA8Vv6Ksmxu/1UDYcXs4uQLJ+jE2L00=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=

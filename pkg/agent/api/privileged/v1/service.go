@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"reflect"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 	privilegedv1 "github.com/spiffe/spire-api-sdk/proto/spire/api/agent/privileged/v1"
@@ -116,6 +118,145 @@ func (s *Service) FetchX509SVIDsBySelectors(req *privilegedv1.FetchX509SVIDsBySe
 	}
 }
 
+func (s *Service) WatchX509SVIDs(stream privilegedv1.Privileged_WatchX509SVIDsServer) error {
+	ctx := stream.Context()
+
+	authorized, err := s.isCallerAuthorized(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to attest caller: %w", err)
+	}
+
+	if !authorized {
+		return status.Error(codes.PermissionDenied, "no authorized")
+	}
+
+	notifyChan := make(chan *cache.WorkloadUpdate, 1)
+
+	selectCase := reflect.SelectCase{
+		Dir:  reflect.SelectRecv,
+		Chan: reflect.ValueOf(notifyChan),
+	}
+
+	subscribersMap := make(map[uint64]cache.Subscriber)
+
+	selectCases := []reflect.SelectCase{selectCase}
+	ids := []uint64{0}
+
+	var mutex sync.Mutex
+
+	handle_recv := func() {
+		for {
+			req, err := stream.Recv()
+			if err != nil {
+				fmt.Printf("error on recv: %s", err)
+				return
+			}
+
+			switch req.Operation {
+			case privilegedv1.WatchX509SVIDsRequest_ADD:
+				fmt.Printf("****** handling add operation\n")
+				selectors, err := api.SelectorsFromProto(req.Selectors)
+				if err != nil {
+					fmt.Println(err)
+					continue
+				}
+
+				mutex.Lock()
+
+				subscriber := s.manager.SubscribeToCacheChanges(selectors)
+				subscribersMap[req.Id] = subscriber
+
+				channel := subscriber.Updates()
+				selectCase := reflect.SelectCase{
+					Dir:  reflect.SelectRecv,
+					Chan: reflect.ValueOf(channel),
+				}
+
+				selectCases = append(selectCases, selectCase)
+				ids = append(ids, req.Id)
+
+				mutex.Unlock()
+
+				notifyChan <- nil
+			case privilegedv1.WatchX509SVIDsRequest_DEL:
+				fmt.Printf("****** handling del operation\n")
+				subscriber, ok := subscribersMap[req.Id]
+				if !ok {
+					fmt.Printf("id %d not found", req.Id)
+					continue
+				}
+
+				// This will close the channel. selectCases and tokens are cleanup in WatchX509SVIDs
+				subscriber.Finish()
+
+				mutex.Lock()
+				delete(subscribersMap, req.Id)
+				mutex.Unlock()
+			}
+		}
+	}
+
+	go handle_recv()
+
+	for {
+		idx, value, ok := reflect.Select(selectCases)
+		if !ok {
+			fmt.Printf("********%d was closed\n", idx)
+
+			mutex.Lock()
+
+			selectCases[idx] = selectCases[len(selectCases)-1]
+			selectCases = selectCases[:len(selectCases)-1]
+
+			ids[idx] = ids[len(ids)-1]
+			ids = ids[:len(ids)-1]
+
+			mutex.Unlock()
+
+			continue
+		}
+
+		// iterate again
+		if idx == 0 {
+			fmt.Printf("********unblocked for idx = 0\n")
+			continue
+		}
+
+		update, ok := value.Interface().(*cache.WorkloadUpdate)
+		if !ok {
+			fmt.Printf("********interface is not valid\n")
+			continue
+		}
+
+		fmt.Printf("********there was an update with index %d, token is %d\n", idx, ids[idx])
+
+		err := s.sendWatch(ids[idx], update, stream)
+		if err != nil {
+			fmt.Printf("********** error sending update")
+		}
+	}
+}
+
+func (S *Service) sendWatch(id uint64, update *cache.WorkloadUpdate, stream privilegedv1.Privileged_WatchX509SVIDsServer) error {
+	resp, err := composeX509SVIDBySelectors(update)
+	if err != nil {
+		//log.WithError(err).Error("Could not serialize X.509 SVID response")
+		return status.Errorf(codes.Unavailable, "could not serialize response: %v", err)
+	}
+
+	resp2 := new(privilegedv1.WatchX509SVIDsResponse)
+
+	resp2.Response = resp
+	resp2.Id = id
+
+	if err := stream.Send(resp2); err != nil {
+		//log.WithError(err).Error("Failed to send X.509 SVID response")
+		return err
+	}
+
+	return nil
+}
+
 func sendX509SVIDResponse(update *cache.WorkloadUpdate, stream privilegedv1.Privileged_FetchX509SVIDsBySelectorsServer) (err error) {
 	resp, err := composeX509SVIDBySelectors(update)
 	if err != nil {
@@ -133,11 +274,11 @@ func sendX509SVIDResponse(update *cache.WorkloadUpdate, stream privilegedv1.Priv
 
 func composeX509SVIDBySelectors(update *cache.WorkloadUpdate) (*privilegedv1.FetchX509SVIDsBySelectorsResponse, error) {
 	resp := new(privilegedv1.FetchX509SVIDsBySelectorsResponse)
-	resp.Svids = []*privilegedv1.X509SVIDWithKey{}
+	resp.X509Svids = []*privilegedv1.X509SVIDWithKey{}
 
 	for _, identity := range update.Identities {
 		// TODO:  it doesn't work and always prints "false"
-		//fmt.Printf("processing id %s, %t\n", identity.Entry.SpiffeId, identity.Entry.Admin)
+		//fmt.Printf("********processing id %s, %t\n", identity.Entry.SpiffeId, identity.Entry.Admin)
 		// Do not send admin nor downstream SVIDs to the caller
 		if identity.Entry.Admin || identity.Entry.Downstream {
 			continue
@@ -159,11 +300,11 @@ func composeX509SVIDBySelectors(update *cache.WorkloadUpdate) (*privilegedv1.Fet
 			X509SvidKey: keyData,
 		}
 
-		resp.Svids = append(resp.Svids, svid)
+		resp.X509Svids = append(resp.X509Svids, svid)
 	}
 
 	// Send bundles only if there is any svid
-	if len(resp.Svids) != 0 {
+	if len(resp.X509Svids) != 0 {
 		resp.Bundle = marshalBundle(update.Bundle.RootCAs())
 
 		resp.FederatedBundles = make(map[string][]byte)
